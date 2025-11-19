@@ -31,23 +31,53 @@ type ConnectionManager struct {
 	// Message handling
 	messageHandler func(*Message, string) // Callback for incoming messages
 
+	// Connection retry
+	retryTicker *time.Ticker
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
+// ConnectionState represents the current state of a peer connection
+type ConnectionState int
+
+const (
+	StateDisconnected ConnectionState = iota // Not connected
+	StateConnecting                          // Attempting to connect
+	StateConnected                           // Successfully connected
+	StateFailed                              // Connection failed, will retry
+)
+
+func (s ConnectionState) String() string {
+	switch s {
+	case StateDisconnected:
+		return "disconnected"
+	case StateConnecting:
+		return "connecting"
+	case StateConnected:
+		return "connected"
+	case StateFailed:
+		return "failed"
+	default:
+		return "unknown"
+	}
+}
+
 // PeerConnection represents a TCP connection to a single peer
 type PeerConnection struct {
-	PeerID    string
-	Username  string
-	Address   *net.TCPAddr
-	Conn      net.Conn
-	Connected bool
-	LastSeen  time.Time
-	SendChan  chan *Message // Channel for outgoing messages
-	ctx       context.Context
-	cancel    context.CancelFunc
+	PeerID      string
+	Username    string
+	Address     *net.TCPAddr
+	Conn        net.Conn
+	State       ConnectionState
+	LastSeen    time.Time
+	LastAttempt time.Time
+	RetryCount  int
+	SendChan    chan *Message // Channel for outgoing messages
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // NewConnectionManager creates a new TCP connection manager
@@ -59,6 +89,7 @@ func NewConnectionManager(peerID, username string, port int) *ConnectionManager 
 		localUsername: username,
 		localPort:     port,
 		connections:   make(map[string]*PeerConnection),
+		retryTicker:   time.NewTicker(10 * time.Second),
 		ctx:           ctx,
 		cancel:        cancel,
 	}
@@ -79,6 +110,10 @@ func (cm *ConnectionManager) Start() error {
 	cm.wg.Add(1)
 	go cm.acceptConnections()
 
+	// Start connection retry loop
+	cm.wg.Add(1)
+	go cm.connectionRetryLoop()
+
 	return nil
 }
 
@@ -93,7 +128,7 @@ func (cm *ConnectionManager) acceptConnections() {
 		default:
 			// Set a timeout so we can check for context cancellation
 			if tcpListener, ok := cm.listener.(*net.TCPListener); ok {
-				tcpListener.SetDeadline(time.Now().Add(time.Second))
+				tcpListener.SetDeadline(time.Now().Add(5 * time.Second))
 			}
 
 			conn, err := cm.listener.Accept()
@@ -137,21 +172,34 @@ func (cm *ConnectionManager) handleIncomingConnection(conn net.Conn) {
 		return
 	}
 
-	// Create peer connection
-	peerConn := &PeerConnection{
-		PeerID:    msg.SenderID,
-		Username:  msg.Username,
-		Address:   conn.RemoteAddr().(*net.TCPAddr),
-		Conn:      conn,
-		Connected: true,
-		LastSeen:  time.Now(),
-		SendChan:  make(chan *Message, 100), // Buffer for outgoing messages
-	}
-	peerConn.ctx, peerConn.cancel = context.WithCancel(cm.ctx)
-
-	// Register the connection
+	// Check if we already have a connection entry for this peer
 	cm.connMutex.Lock()
-	cm.connections[peerConn.PeerID] = peerConn
+	existing := cm.connections[msg.SenderID]
+	var peerConn *PeerConnection
+
+	if existing != nil {
+		// Update existing connection with new socket
+		existing.Conn = conn
+		existing.State = StateConnected
+		existing.LastSeen = time.Now()
+		existing.Address = conn.RemoteAddr().(*net.TCPAddr)
+		peerConn = existing
+
+	} else {
+		// Create new peer connection
+		peerConn = &PeerConnection{
+			PeerID:   msg.SenderID,
+			Username: msg.Username,
+			Address:  conn.RemoteAddr().(*net.TCPAddr),
+			Conn:     conn,
+			State:    StateConnected,
+			LastSeen: time.Now(),
+			SendChan: make(chan *Message, 100), // Buffer for outgoing messages
+		}
+		peerConn.ctx, peerConn.cancel = context.WithCancel(cm.ctx)
+		cm.connections[msg.SenderID] = peerConn
+
+	}
 	cm.connMutex.Unlock()
 
 	log.Printf("✅ Peer connected: %s (%s)", peerConn.Username, peerConn.PeerID)
@@ -164,13 +212,14 @@ func (cm *ConnectionManager) handleIncomingConnection(conn net.Conn) {
 
 // ConnectToPeer establishes an outgoing TCP connection to a discovered peer
 func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
-	// Check if already connected
+	// Check if already connected or connecting
 	cm.connMutex.RLock()
 	existing := cm.connections[p.ID]
 	cm.connMutex.RUnlock()
 
-	if existing != nil && existing.Connected {
-		return nil // Already connected
+	if existing != nil && (existing.State == StateConnected || existing.State == StateConnecting) {
+
+		return nil // Already connected or connecting
 	}
 
 	// Leader election: Only connect if our peer ID is smaller
@@ -180,30 +229,47 @@ func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
 		return nil
 	}
 
-	log.Printf("🔗 Connecting to peer %s (%s) at %s", p.Username, p.ID, p.Address)
+	// Create or update peer connection entry
+	cm.connMutex.Lock()
+	if existing == nil {
+		existing = &PeerConnection{
+			PeerID:   p.ID,
+			Username: p.Username,
+			Address:  p.Address,
+			State:    StateDisconnected,
+			SendChan: make(chan *Message, 100),
+		}
+		existing.ctx, existing.cancel = context.WithCancel(cm.ctx)
+		cm.connections[p.ID] = existing
+	}
+	cm.connMutex.Unlock()
+
+	// Attempt connection
+	return cm.attemptConnection(existing)
+}
+
+// attemptConnection tries to establish a TCP connection to a peer
+func (cm *ConnectionManager) attemptConnection(peerConn *PeerConnection) error {
+	peerConn.State = StateConnecting
+	peerConn.LastAttempt = time.Now()
+
+	log.Printf("🔗 Connecting to peer %s (%s) at %s (attempt %d)",
+		peerConn.Username, peerConn.PeerID, peerConn.Address, peerConn.RetryCount+1)
 
 	// Establish TCP connection
-	conn, err := net.DialTimeout("tcp", p.Address.String(), 5*time.Second)
+	conn, err := net.DialTimeout("tcp", peerConn.Address.String(), 5*time.Second)
 	if err != nil {
-		return fmt.Errorf("failed to connect to %s: %w", p.Address, err)
+		peerConn.State = StateFailed
+		peerConn.RetryCount++
+		log.Printf("❌ Failed to connect to peer %s: %v (will retry)", peerConn.Username, err)
+		return fmt.Errorf("failed to connect to %s: %w", peerConn.Address, err)
 	}
 
-	// Create peer connection
-	peerConn := &PeerConnection{
-		PeerID:    p.ID,
-		Username:  p.Username,
-		Address:   p.Address,
-		Conn:      conn,
-		Connected: true,
-		LastSeen:  time.Now(),
-		SendChan:  make(chan *Message, 100),
-	}
-	peerConn.ctx, peerConn.cancel = context.WithCancel(cm.ctx)
-
-	// Register the connection
-	cm.connMutex.Lock()
-	cm.connections[p.ID] = peerConn
-	cm.connMutex.Unlock()
+	// Update connection
+	peerConn.Conn = conn
+	peerConn.State = StateConnected
+	peerConn.LastSeen = time.Now()
+	peerConn.RetryCount = 0
 
 	// Send identification message
 	identMsg := NewJoinMessage(cm.localPeerID, cm.localUsername, 0)
@@ -212,17 +278,18 @@ func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
 	writer := bufio.NewWriter(conn)
 	_, err = writer.WriteString(string(identJSON) + "\n")
 	if err != nil {
-		peerConn.Connected = false
+		peerConn.State = StateFailed
 		conn.Close()
 		return fmt.Errorf("failed to send identification: %w", err)
 	}
 	err = writer.Flush()
 	if err != nil {
-		peerConn.Connected = false
+		peerConn.State = StateFailed
 		conn.Close()
 		return fmt.Errorf("failed to flush identification: %w", err)
 	}
-	log.Printf("✅ Connected to peer: %s (%s)", p.Username, p.ID)
+
+	log.Printf("✅ Connected to peer: %s (%s)", peerConn.Username, peerConn.PeerID)
 
 	// Start message handling
 	reader := bufio.NewReader(conn)
@@ -231,6 +298,52 @@ func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
 	go cm.handlePeerSending(peerConn)
 
 	return nil
+}
+
+// connectionRetryLoop periodically retries failed connections
+func (cm *ConnectionManager) connectionRetryLoop() {
+	defer cm.wg.Done()
+
+	for {
+		select {
+		case <-cm.ctx.Done():
+			return
+		case <-cm.retryTicker.C:
+			cm.retryFailedConnections()
+		}
+	}
+}
+
+// retryFailedConnections attempts to reconnect to failed peers
+func (cm *ConnectionManager) retryFailedConnections() {
+	cm.connMutex.RLock()
+	var failedPeers []*PeerConnection
+	for _, peerConn := range cm.connections {
+		if peerConn.State == StateFailed {
+			// Exponential backoff: wait longer after each failure
+			backoffDelay := time.Duration(1<<uint(min(peerConn.RetryCount, 6))) * time.Second // Max 64s
+			if time.Since(peerConn.LastAttempt) > backoffDelay {
+				failedPeers = append(failedPeers, peerConn)
+			}
+		}
+	}
+	cm.connMutex.RUnlock()
+
+	// Retry failed connections
+	for _, peerConn := range failedPeers {
+		// Only retry if we should initiate the connection (leader election)
+		if cm.localPeerID < peerConn.PeerID {
+			go cm.attemptConnection(peerConn)
+		}
+	}
+}
+
+// min returns the minimum of two integers
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 // handlePeerMessages reads incoming messages from a peer connection
@@ -243,8 +356,8 @@ func (cm *ConnectionManager) handlePeerMessages(peerConn *PeerConnection, reader
 		case <-peerConn.ctx.Done():
 			return
 		default:
-			// Set read timeout
-			peerConn.Conn.SetReadDeadline(time.Now().Add(30 * time.Second))
+			// Set read timeout - longer for interactive chat
+			peerConn.Conn.SetReadDeadline(time.Now().Add(2 * time.Minute))
 
 			line, err := reader.ReadString('\n')
 			if err != nil {
@@ -293,7 +406,7 @@ func (cm *ConnectionManager) handlePeerSending(peerConn *PeerConnection) {
 			}
 
 			// Send message
-			peerConn.Conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			peerConn.Conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			_, err = writer.WriteString(string(jsonData) + "\n")
 			if err != nil {
 				log.Printf("❌ Failed to send message to peer %s: %v", peerConn.Username, err)
@@ -314,10 +427,17 @@ func (cm *ConnectionManager) Broadcast(msg *Message) {
 	cm.connMutex.RLock()
 	defer cm.connMutex.RUnlock()
 
-	log.Printf("📡 Broadcasting message to %d peers", len(cm.connections))
+	connectedCount := 0
+	for _, peerConn := range cm.connections {
+		if peerConn.State == StateConnected {
+			connectedCount++
+		}
+	}
+
+	log.Printf("📡 Broadcasting message to %d connected peers", connectedCount)
 
 	for peerID, peerConn := range cm.connections {
-		if !peerConn.Connected {
+		if peerConn.State != StateConnected {
 			continue
 		}
 
@@ -337,7 +457,7 @@ func (cm *ConnectionManager) SendToPeer(peerID string, msg *Message) error {
 	peerConn, exists := cm.connections[peerID]
 	cm.connMutex.RUnlock()
 
-	if !exists || !peerConn.Connected {
+	if !exists || peerConn.State != StateConnected {
 		return fmt.Errorf("peer %s not connected", peerID)
 	}
 
@@ -351,13 +471,14 @@ func (cm *ConnectionManager) SendToPeer(peerID string, msg *Message) error {
 
 // disconnectPeer handles peer disconnection cleanup
 func (cm *ConnectionManager) disconnectPeer(peerConn *PeerConnection) {
-	peerConn.Connected = false
+	peerConn.State = StateFailed
 	peerConn.cancel()
 	if peerConn.Conn != nil {
 		peerConn.Conn.Close()
+		peerConn.Conn = nil
 	}
 
-	log.Printf("❌ Peer disconnected: %s (%s)", peerConn.Username, peerConn.PeerID)
+	log.Printf("❌ Peer disconnected: %s (%s) - will retry connection", peerConn.Username, peerConn.PeerID)
 }
 
 // SetMessageHandler sets the callback for incoming messages
@@ -372,7 +493,7 @@ func (cm *ConnectionManager) GetConnectedPeers() []string {
 
 	peers := make([]string, 0, len(cm.connections))
 	for peerID, peerConn := range cm.connections {
-		if peerConn.Connected {
+		if peerConn.State == StateConnected {
 			peers = append(peers, peerID)
 		}
 	}
@@ -386,6 +507,11 @@ func (cm *ConnectionManager) Stop() error {
 	// Cancel all operations
 	cm.cancel()
 
+	// Stop retry ticker
+	if cm.retryTicker != nil {
+		cm.retryTicker.Stop()
+	}
+
 	// Close listener
 	if cm.listener != nil {
 		cm.listener.Close()
@@ -395,7 +521,9 @@ func (cm *ConnectionManager) Stop() error {
 	cm.connMutex.Lock()
 	for _, peerConn := range cm.connections {
 		peerConn.cancel()
-		peerConn.Conn.Close()
+		if peerConn.Conn != nil {
+			peerConn.Conn.Close()
+		}
 	}
 	cm.connMutex.Unlock()
 

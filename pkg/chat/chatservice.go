@@ -168,29 +168,35 @@ func (cs *ChatService) GetConnectedPeers() []PeerInfo {
 	// Get peers from discovery (UDP - who's announcing)
 	discoveredPeers := cs.discovery.GetOnlinePeers()
 
-	// Get peers from connections (TCP - who we're chatting with)
-	connectedPeerIDs := cs.connections.GetConnectedPeers()
+	// Get connection details from connection manager
+	connectionDetails := make(map[string]*PeerConnection)
+	cs.connections.connMutex.RLock()
+	for id, conn := range cs.connections.connections {
+		connectionDetails[id] = conn
+	}
+	cs.connections.connMutex.RUnlock()
 
 	// Create a combined view
 	peerInfos := make([]PeerInfo, 0, len(discoveredPeers))
 
 	for _, p := range discoveredPeers {
 		info := PeerInfo{
-			PeerID:     p.ID,
-			Username:   p.Username,
-			Address:    p.Address.String(),
-			Status:     p.Status.String(),
-			LastSeen:   p.LastSeen,
-			Discovered: true,  // Found via UDP discovery
-			Connected:  false, // Default to false
+			PeerID:          p.ID,
+			Username:        p.Username,
+			Address:         p.Address.String(),
+			Status:          p.Status.String(),
+			LastSeen:        p.LastSeen,
+			Discovered:      true,  // Found via UDP discovery
+			Connected:       false, // Default to false
+			ConnectionState: "disconnected",
+			RetryCount:      0,
 		}
 
-		// Check if we also have a TCP connection
-		for _, connectedID := range connectedPeerIDs {
-			if connectedID == p.ID {
-				info.Connected = true
-				break
-			}
+		// Check if we have TCP connection info
+		if connDetail, exists := connectionDetails[p.ID]; exists {
+			info.Connected = (connDetail.State == StateConnected)
+			info.ConnectionState = connDetail.State.String()
+			info.RetryCount = connDetail.RetryCount
 		}
 
 		peerInfos = append(peerInfos, info)
@@ -201,13 +207,15 @@ func (cs *ChatService) GetConnectedPeers() []PeerInfo {
 
 // PeerInfo provides a combined view of peer discovery and connection status
 type PeerInfo struct {
-	PeerID     string
-	Username   string
-	Address    string
-	Status     string // From discovery service
-	LastSeen   time.Time
-	Discovered bool // Found via UDP discovery
-	Connected  bool // Has active TCP connection
+	PeerID          string
+	Username        string
+	Address         string
+	Status          string // From discovery service
+	LastSeen        time.Time
+	Discovered      bool   // Found via UDP discovery
+	Connected       bool   // Has active TCP connection
+	ConnectionState string // TCP connection state
+	RetryCount      int    // Number of connection retries
 }
 
 // nextSequence returns the next message sequence number
