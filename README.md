@@ -80,12 +80,44 @@ p2pchat/
 ├── cmd/p2pchat/          # Main application
 ├── pkg/                  # Public packages  
 │   ├── discovery/        # Peer discovery
-│   ├── connection/       # TCP connections
-│   ├── message/         # Message protocol
+│   ├── chat/            # TCP connections & messaging
 │   └── ui/              # Terminal interface
 ├── internal/            # Private packages
+│   └── peer/            # Peer data structures
 └── docs/               # Documentation
 ```
+
+## Network Architecture
+
+The P2P chat system uses a two-phase approach: **UDP discovery** followed by **TCP messaging**.
+
+```
+   Alice's Computer          Network          Bob's Computer
+        │                     │                     │
+        │ "I'm Alice!"        │                     │
+        │ ═══════════════════►│ UDP Multicast       │
+        │                     │ ═══════════════════►│ "Oh, Alice exists!"
+        │                     │        "I'm Bob!"   │  
+        │ UDP Multicast       │ ◄═══════════════════│
+        │ ◄═══════════════════│                     │ "Oh, Bob exists!"
+        │                     │                     │
+        │ "Let's chat, Bob!"  │                     │
+        │ ────────────────────┼ TCP Connection      │
+        │                     │ ────────────────────┼► "Alice wants to chat!"
+        │                     │      "Hi Alice!"    │
+        │ TCP Connection      │ ◄───────────────────┤
+        │ ◄───────────────────┼                     │ "Bob says hi!"
+```
+
+**Phase 1: Discovery (UDP Multicast)**
+- Peers broadcast their presence on the local network
+- Everyone discovers everyone else automatically
+
+**Phase 2: Messaging (TCP)**
+- Direct, reliable connections established between all peer pairs
+- Chat messages flow over these stable TCP connections
+
+
 
 ## Development Status
 
