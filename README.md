@@ -18,11 +18,14 @@ git clone <repository-url>
 cd p2pchat
 go build -o p2pchat cmd/p2pchat/main.go
 
-# Start chatting
-./p2pchat -username alice
+# Start chatting (Terminal 1)
+./p2pchat -username alice -port 8080
 
-# Or with custom settings
-./p2pchat -username bob -port 8080 -debug
+# Start second user (Terminal 2) 
+./p2pchat -username bob -port 8081
+
+# Debug mode (logs to file)
+./p2pchat -username charlie -port 8082 -debug
 ```
 
 ## How It Works
@@ -129,11 +132,11 @@ The P2P chat system creates a **full mesh network** where every peer connects to
 
 ## Development Status
 
-**COMPLETE: Production-Quality P2P Mesh Network! 🚀**
+**COMPLETE: Production-Quality P2P Chat Application! 🚀**
 
-This project successfully demonstrates enterprise-grade distributed systems engineering. The core P2P networking is fully implemented and verified working with multi-peer testing.
+This project successfully demonstrates enterprise-grade distributed systems engineering with a professional terminal user interface. The complete P2P chat system is fully implemented and verified working with real human-to-human communication.
 
-**Achievements:**
+**Core Networking Achievements:**
 - ✅ Full mesh P2P networking (every peer connects to every peer)
 - ✅ Automatic peer discovery via UDP multicast
 - ✅ Real-time message broadcasting verified across 3+ peers
@@ -141,27 +144,47 @@ This project successfully demonstrates enterprise-grade distributed systems engi
 - ✅ Leader election preventing race conditions
 - ✅ Production-quality error handling and state management
 
+**Terminal UI Achievements:**
+- ✅ Professional Bubble Tea terminal interface using MVU architecture
+- ✅ Real-time message display with clean formatting and timestamps
+- ✅ Live peer status indicators with connection state visualization
+- ✅ Event-driven UI updates: P2P network events automatically refresh interface
+- ✅ Complete logging system overhaul with silent mode for clean user experience
+- ✅ Seamless integration between UDP discovery + TCP messaging and terminal UI
+- ✅ Verified working: Alice ↔ Bob real-time terminal chat sessions
+
 ## Technical Highlights
 
 - **Distributed Systems**: Production P2P mesh networking with leader election and fault tolerance
 - **Network Programming**: UDP multicast discovery + TCP reliable messaging with retry logic  
+- **Terminal UI Development**: Modern Bubble Tea framework with MVU (Model-View-Update) architecture
+- **Event-Driven Architecture**: Seamless P2P network events → UI updates via Commands pattern
 - **Concurrent Programming**: Advanced goroutines, channels, contexts, and mutex coordination
-- **Modern Go**: Clean architecture, proper error handling, comprehensive multi-peer testing
-- **Real P2P Achievement**: Verified Alice ↔ Bob ↔ Charlie full mesh communication
+- **Modern Go**: Clean architecture, proper error handling, centralized logging system
+- **Real P2P Achievement**: Verified Alice ↔ Bob real-time chat with professional terminal interface
 
-## Limitations
+## Current Limitations
 
 - **LAN Only**: Uses multicast UDP which doesn't route across the internet
 - **Mesh Scaling**: Full mesh topology doesn't scale beyond ~20-30 peers
+- **Message History**: Limited to current session, no scrolling for long conversations
 - **No Persistence**: Messages aren't saved when you disconnect
 
 ## Future Enhancements
 
+### Short-term (UI Polish)
+- Scrollable message history with pagination
+- Message history persistence to files
+- Color-coded messages by user
+- Chat commands (/users, /quit, /help, /nick)
+- Window resizing support and responsive layouts
+
+### Long-term (Network Features)
 - DHT-based discovery for internet-wide connectivity
 - Message encryption for privacy
 - Chat rooms and channels
 - File transfer capabilities
-- Message history persistence
+- Performance optimizations for larger peer groups
 
 ## License
 

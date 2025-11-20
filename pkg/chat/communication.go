@@ -6,12 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"sync"
 	"time"
 
 	"p2pchat/internal/peer"
+	"p2pchat/pkg/logger"
 )
 
 // ConnectionManager handles TCP connections to all discovered peers
@@ -104,7 +104,7 @@ func (cm *ConnectionManager) Start() error {
 	}
 
 	cm.listener = listener
-	log.Printf("🔌 TCP listener started on port %d", cm.localPort)
+	logger.Debug("🔌 TCP listener started on port %d", cm.localPort)
 
 	// Accept incoming connections
 	cm.wg.Add(1)
@@ -137,11 +137,11 @@ func (cm *ConnectionManager) acceptConnections() {
 				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 					continue // This is expected, check for cancellation and retry
 				}
-				log.Printf("❌ Error accepting connection: %v", err)
+				logger.Error("❌ Error accepting connection: %v", err)
 				continue
 			}
 
-			log.Printf("📞 Incoming connection from %s", conn.RemoteAddr())
+			logger.Debug("📞 Incoming connection from %s", conn.RemoteAddr())
 
 			// Handle the new connection in a goroutine
 			cm.wg.Add(1)
@@ -159,7 +159,7 @@ func (cm *ConnectionManager) handleIncomingConnection(conn net.Conn) {
 	reader := bufio.NewReader(conn)
 	line, err := reader.ReadString('\n')
 	if err != nil {
-		log.Printf("❌ Failed to read peer identification: %v", err)
+		logger.Error("❌ Failed to read peer identification: %v", err)
 		conn.Close() // Close on error only
 		return
 	}
@@ -167,7 +167,7 @@ func (cm *ConnectionManager) handleIncomingConnection(conn net.Conn) {
 	// Parse the identification message
 	var msg Message
 	if err := json.Unmarshal([]byte(line), &msg); err != nil {
-		log.Printf("❌ Failed to parse peer identification: %v", err)
+		logger.Error("❌ Failed to parse peer identification: %v", err)
 		conn.Close() // Close on error only
 		return
 	}
@@ -202,7 +202,7 @@ func (cm *ConnectionManager) handleIncomingConnection(conn net.Conn) {
 	}
 	cm.connMutex.Unlock()
 
-	log.Printf("✅ Peer connected: %s (%s)", peerConn.Username, peerConn.PeerID)
+	logger.Debug("✅ Peer connected: %s (%s)", peerConn.Username, peerConn.PeerID)
 
 	// Start message handling goroutines
 	cm.wg.Add(2)
@@ -225,7 +225,7 @@ func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
 	// Leader election: Only connect if our peer ID is smaller
 	// This prevents duplicate connections and race conditions
 	if cm.localPeerID >= p.ID {
-		log.Printf("⏳ Waiting for %s to connect to us (peer ID ordering)", p.Username)
+		logger.Debug("⏳ Waiting for %s to connect to us (peer ID ordering)", p.Username)
 		return nil
 	}
 
@@ -253,7 +253,7 @@ func (cm *ConnectionManager) attemptConnection(peerConn *PeerConnection) error {
 	peerConn.State = StateConnecting
 	peerConn.LastAttempt = time.Now()
 
-	log.Printf("🔗 Connecting to peer %s (%s) at %s (attempt %d)",
+	logger.Debug("🔗 Connecting to peer %s (%s) at %s (attempt %d)",
 		peerConn.Username, peerConn.PeerID, peerConn.Address, peerConn.RetryCount+1)
 
 	// Establish TCP connection
@@ -261,7 +261,7 @@ func (cm *ConnectionManager) attemptConnection(peerConn *PeerConnection) error {
 	if err != nil {
 		peerConn.State = StateFailed
 		peerConn.RetryCount++
-		log.Printf("❌ Failed to connect to peer %s: %v (will retry)", peerConn.Username, err)
+		logger.Error("❌ Failed to connect to peer %s: %v (will retry)", peerConn.Username, err)
 		return fmt.Errorf("failed to connect to %s: %w", peerConn.Address, err)
 	}
 
@@ -289,7 +289,7 @@ func (cm *ConnectionManager) attemptConnection(peerConn *PeerConnection) error {
 		return fmt.Errorf("failed to flush identification: %w", err)
 	}
 
-	log.Printf("✅ Connected to peer: %s (%s)", peerConn.Username, peerConn.PeerID)
+	logger.Debug("✅ Connected to peer: %s (%s)", peerConn.Username, peerConn.PeerID)
 
 	// Start message handling
 	reader := bufio.NewReader(conn)
@@ -362,9 +362,9 @@ func (cm *ConnectionManager) handlePeerMessages(peerConn *PeerConnection, reader
 			line, err := reader.ReadString('\n')
 			if err != nil {
 				if err == io.EOF {
-					log.Printf("📞 Peer %s disconnected", peerConn.Username)
+					logger.Debug("📞 Peer %s disconnected", peerConn.Username)
 				} else {
-					log.Printf("❌ Error reading from peer %s: %v", peerConn.Username, err)
+					logger.Error("❌ Error reading from peer %s: %v", peerConn.Username, err)
 				}
 				return
 			}
@@ -372,7 +372,7 @@ func (cm *ConnectionManager) handlePeerMessages(peerConn *PeerConnection, reader
 			// Parse the message
 			msg, err := FromJSON([]byte(line))
 			if err != nil {
-				log.Printf("❌ Invalid message from peer %s: %v", peerConn.Username, err)
+				logger.Error("❌ Invalid message from peer %s: %v", peerConn.Username, err)
 				continue
 			}
 
@@ -401,7 +401,7 @@ func (cm *ConnectionManager) handlePeerSending(peerConn *PeerConnection) {
 			// Serialize message
 			jsonData, err := msg.ToJSON()
 			if err != nil {
-				log.Printf("❌ Failed to serialize message: %v", err)
+				logger.Error("❌ Failed to serialize message: %v", err)
 				continue
 			}
 
@@ -409,13 +409,13 @@ func (cm *ConnectionManager) handlePeerSending(peerConn *PeerConnection) {
 			peerConn.Conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
 			_, err = writer.WriteString(string(jsonData) + "\n")
 			if err != nil {
-				log.Printf("❌ Failed to send message to peer %s: %v", peerConn.Username, err)
+				logger.Error("❌ Failed to send message to peer %s: %v", peerConn.Username, err)
 				return
 			}
 
 			err = writer.Flush()
 			if err != nil {
-				log.Printf("❌ Failed to flush message to peer %s: %v", peerConn.Username, err)
+				logger.Error("❌ Failed to flush message to peer %s: %v", peerConn.Username, err)
 				return
 			}
 		}
@@ -434,7 +434,7 @@ func (cm *ConnectionManager) Broadcast(msg *Message) {
 		}
 	}
 
-	log.Printf("📡 Broadcasting message to %d connected peers", connectedCount)
+	logger.Debug("📡 Broadcasting message to %d connected peers", connectedCount)
 
 	for peerID, peerConn := range cm.connections {
 		if peerConn.State != StateConnected {
@@ -446,7 +446,7 @@ func (cm *ConnectionManager) Broadcast(msg *Message) {
 			// Message queued successfully
 		default:
 			// Send channel full, peer might be slow or disconnected
-			log.Printf("⚠️ Send queue full for peer %s, skipping message", peerID)
+			logger.Error("⚠️ Send queue full for peer %s, skipping message", peerID)
 		}
 	}
 }
@@ -478,7 +478,7 @@ func (cm *ConnectionManager) disconnectPeer(peerConn *PeerConnection) {
 		peerConn.Conn = nil
 	}
 
-	log.Printf("❌ Peer disconnected: %s (%s) - will retry connection", peerConn.Username, peerConn.PeerID)
+	logger.Debug("❌ Peer disconnected: %s (%s) - will retry connection", peerConn.Username, peerConn.PeerID)
 }
 
 // SetMessageHandler sets the callback for incoming messages
@@ -502,7 +502,7 @@ func (cm *ConnectionManager) GetConnectedPeers() []string {
 
 // Stop shuts down the connection manager gracefully
 func (cm *ConnectionManager) Stop() error {
-	log.Printf("🛑 Stopping connection manager...")
+	logger.Debug("🛑 Stopping connection manager...")
 
 	// Cancel all operations
 	cm.cancel()
@@ -530,6 +530,6 @@ func (cm *ConnectionManager) Stop() error {
 	// Wait for all goroutines to finish
 	cm.wg.Wait()
 
-	log.Printf("✅ Connection manager stopped")
+	logger.Debug("✅ Connection manager stopped")
 	return nil
 }

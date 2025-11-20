@@ -3,13 +3,13 @@ package chat
 import (
 	"context"
 	"fmt"
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"p2pchat/internal/peer"
 	"p2pchat/pkg/discovery"
+	"p2pchat/pkg/logger"
 )
 
 // ChatService is the main service that coordinates discovery and chat messaging
@@ -71,14 +71,14 @@ func (cs *ChatService) setupIntegration() {
 	cs.discovery.SetPeerEventHandlers(
 		// On peer join - this is the UDP→TCP bridge!
 		func(p *peer.Peer) {
-			log.Printf("🎉 Discovery found peer: %s (%s) - connecting via TCP...", p.Username, p.ID)
+			logger.Debug("🎉 Discovery found peer: %s (%s) - connecting via TCP...", p.Username, p.ID)
 
 			// Convert UDP discovery into TCP connection
 			err := cs.connections.ConnectToPeer(p)
 			if err != nil {
-				log.Printf("❌ Failed to connect to peer %s: %v", p.Username, err)
+				logger.Error("❌ Failed to connect to peer %s: %v", p.Username, err)
 			} else {
-				log.Printf("✅ TCP connection established with %s!", p.Username)
+				logger.Debug("✅ TCP connection established with %s!", p.Username)
 
 				// Send a join message to let them know we're here
 				joinMsg := NewJoinMessage(cs.peerID, cs.username, cs.nextSequence())
@@ -88,14 +88,14 @@ func (cs *ChatService) setupIntegration() {
 
 		// On peer leave - handle disconnections gracefully
 		func(p *peer.Peer) {
-			log.Printf("👋 Peer left discovery: %s (%s)", p.Username, p.ID)
+			logger.Debug("👋 Peer left discovery: %s (%s)", p.Username, p.ID)
 			// TCP connection will timeout naturally, but I could force disconnect here
 		},
 	)
 
 	// Handle incoming TCP messages
 	cs.connections.SetMessageHandler(func(msg *Message, fromPeerID string) {
-		log.Printf("📨 Received message from %s: %s", msg.Username, msg.Content)
+		logger.Debug("📨 Received message from %s: %s", msg.Username, msg.Content)
 
 		// Forward message to UI (this is how messages reach the human!)
 		select {
@@ -103,30 +103,31 @@ func (cs *ChatService) setupIntegration() {
 			// Message delivered to UI
 		default:
 			// UI message buffer full - this shouldn't happen in normal use
-			log.Printf("⚠️ UI message buffer full, dropping message from %s", msg.Username)
+			logger.Error("⚠️ UI message buffer full, dropping message from %s", msg.Username)
 		}
+
 	})
 
 }
 
 // Start begins the chat service - this starts both UDP discovery and TCP listening
 func (cs *ChatService) Start() error {
-	log.Printf("🚀 Starting chat service for %s on port %d", cs.username, cs.port)
+	logger.Debug("🚀 Starting chat service for %s on port %d", cs.username, cs.port)
 
 	// Start UDP discovery
 	if err := cs.discovery.Start(); err != nil {
 		return fmt.Errorf("failed to start discovery: %w", err)
 	}
-	log.Printf("📡 UDP discovery started - looking for peers...")
+	logger.Debug("📡 UDP discovery started - looking for peers...")
 
 	// Start TCP connection manager
 	if err := cs.connections.Start(); err != nil {
 		cs.discovery.Stop()
 		return fmt.Errorf("failed to start connections: %w", err)
 	}
-	log.Printf("🔌 TCP listener started - ready for peer connections...")
+	logger.Debug("🔌 TCP listener started - ready for peer connections...")
 
-	log.Printf("✅ Chat service fully started! Ready for human conversations! 💬")
+	logger.Debug("✅ Chat service fully started! Ready for human conversations! 💬")
 	return nil
 }
 
@@ -140,7 +141,7 @@ func (cs *ChatService) SendMessage(content string) error {
 	// Create the message
 	msg := NewChatMessage(cs.peerID, cs.username, content, cs.nextSequence())
 
-	log.Printf("📤 Sending message to all peers: %s", content)
+	logger.Debug("📤 Sending message to all peers: %s", content)
 
 	// Broadcast to all connected peers - this is the magic moment!
 	cs.connections.Broadcast(msg)
@@ -151,7 +152,7 @@ func (cs *ChatService) SendMessage(content string) error {
 		// Our own message appears in our UI too
 	default:
 		// Buffer full - very unlikely
-		log.Printf("⚠️ Failed to add own message to UI buffer")
+		logger.Error("⚠️ Failed to add own message to UI buffer")
 	}
 
 	return nil
@@ -268,7 +269,7 @@ type ServiceStatus struct {
 
 // Stop gracefully shuts down the chat service
 func (cs *ChatService) Stop() error {
-	log.Printf("🛑 Stopping chat service...")
+	logger.Debug("🛑 Stopping chat service...")
 
 	// Send leave notification to all peers
 	cs.NotifyPeerLeave()
@@ -282,12 +283,12 @@ func (cs *ChatService) Stop() error {
 	// Stop services in reverse order
 	var err error
 	if stopErr := cs.connections.Stop(); stopErr != nil {
-		log.Printf("Error stopping connections: %v", stopErr)
+		logger.Error("Error stopping connections: %v", stopErr)
 		err = stopErr
 	}
 
 	if stopErr := cs.discovery.Stop(); stopErr != nil {
-		log.Printf("Error stopping discovery: %v", stopErr)
+		logger.Error("Error stopping discovery: %v", stopErr)
 		if err == nil {
 			err = stopErr
 		}
@@ -299,6 +300,6 @@ func (cs *ChatService) Stop() error {
 	// Wait for all goroutines
 	cs.wg.Wait()
 
-	log.Printf("✅ Chat service stopped")
+	logger.Debug("✅ Chat service stopped")
 	return err
 }

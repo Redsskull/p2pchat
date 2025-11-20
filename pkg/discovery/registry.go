@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"p2pchat/internal/peer"
+	"p2pchat/pkg/logger"
 )
 
 // PeerRegistry manages the list of discovered peers
@@ -57,7 +58,7 @@ func (pr *PeerRegistry) AddOrUpdatePeer(msg *DiscoveryMessage, senderAddr *net.U
 	if exists {
 		// Update existing peer
 		existingPeer.UpdateLastSeen()
-		fmt.Printf("📱 Updated peer: %s (%s)\n", msg.Username, tcpAddr)
+		logger.Debug("📱 Updated peer: %s (%s)", msg.Username, tcpAddr)
 	} else {
 		// Add new peer
 		newPeer := &peer.Peer{
@@ -69,7 +70,7 @@ func (pr *PeerRegistry) AddOrUpdatePeer(msg *DiscoveryMessage, senderAddr *net.U
 		}
 
 		pr.peers[msg.PeerID] = newPeer
-		fmt.Printf("✅ New peer joined: %s (%s)\n", msg.Username, tcpAddr)
+		logger.Debug("✅ New peer joined: %s (%s)", msg.Username, tcpAddr)
 
 		// Notify about new peer
 		if pr.onPeerJoin != nil {
@@ -133,7 +134,7 @@ func (pr *PeerRegistry) CleanupStalePeers() {
 
 		if p.Status == peer.PeerStatusOffline {
 			toRemove = append(toRemove, peerID)
-			fmt.Printf("🔴 Peer went offline: %s\n", p.Username)
+			logger.Debug("🔴 Peer went offline: %s", p.Username)
 
 			// Notify about peer leaving
 			if pr.onPeerLeave != nil {
@@ -148,7 +149,7 @@ func (pr *PeerRegistry) CleanupStalePeers() {
 	}
 
 	if len(toRemove) > 0 {
-		fmt.Printf("🧹 Cleaned up %d offline peers\n", len(toRemove))
+		logger.Debug("🧹 Cleaned up %d offline peers", len(toRemove))
 	}
 }
 
@@ -159,7 +160,7 @@ func (pr *PeerRegistry) RemovePeer(peerID string) {
 
 	if p, exists := pr.peers[peerID]; exists {
 		delete(pr.peers, peerID)
-		fmt.Printf("👋 Peer left gracefully: %s\n", p.Username)
+		logger.Debug("👋 Peer left gracefully: %s", p.Username)
 
 		if pr.onPeerLeave != nil {
 			pr.onPeerLeave(p)

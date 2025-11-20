@@ -5,7 +5,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"p2pchat/pkg/chat"
+	"p2pchat/pkg/ui"
 	"strconv"
+	"time"
+
+	"p2pchat/pkg/logger"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 const (
@@ -24,31 +31,46 @@ type Config struct {
 func main() {
 	config := parseArgs()
 
+	// Set up logging
 	if config.Debug {
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
-		log.Printf("Starting P2P Chat with config: %+v", config)
+		// Debug mode: log to file so it doesn't interfere with TUI
+		err := logger.ToFile("p2pchat-debug.log")
+		if err != nil {
+			log.Printf("Failed to create log file, logging to stderr: %v", err)
+		}
+	} else {
+		// Normal TUI mode: silent logging
+		logger.Silent()
 	}
 
 	fmt.Printf("🚀 P2P Chat starting...\n")
 	fmt.Printf("   Username: %s\n", config.Username)
 	fmt.Printf("   Port: %d\n", config.Port)
 	fmt.Printf("   Multicast: %s\n", config.MulticastAddr)
-	fmt.Printf("   Debug: %v\n", config.Debug)
-	fmt.Printf("\n")
 
-	// TODO: Initialize components
-	// 1. Start peer discovery service
-	// 2. Start connection manager
-	// 3. Start message router
-	// 4. Launch terminal UI
+	// Create and start services...
+	peerID := fmt.Sprintf("%s_%d", config.Username, time.Now().Unix()%1000)
+	chatService, err := chat.NewChatService(peerID, config.Username, config.Port, config.MulticastAddr)
+	if err != nil {
+		log.Fatalf("Failed to create chat service: %v", err)
+	}
 
-	fmt.Println("📋 TODO: Implementation starts Day 2!")
-	fmt.Println("   - Peer discovery via UDP multicast")
-	fmt.Println("   - TCP connection management")
-	fmt.Println("   - Bubble Tea terminal interface")
+	if err := chatService.Start(); err != nil {
+		log.Fatalf("Failed to start chat service: %v", err)
+	}
+	defer chatService.Stop()
 
-	// For now, just show I can parse args and exit
-	fmt.Printf("\n✅ Day 1 complete! Architecture designed, project structured.\n")
+	// Start TUI
+	model := ui.NewChatModel(chatService)
+	program := tea.NewProgram(
+		model,
+		tea.WithAltScreen(),
+		tea.WithMouseCellMotion(),
+	)
+
+	if _, err := program.Run(); err != nil {
+		log.Fatalf("TUI error: %v", err)
+	}
 }
 
 func parseArgs() *Config {

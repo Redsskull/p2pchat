@@ -3,11 +3,11 @@ package discovery
 import (
 	"context"
 	"fmt"
-	"log"
 	"net"
 	"time"
 
 	"p2pchat/internal/peer"
+	"p2pchat/pkg/logger"
 )
 
 // DiscoveryService coordinates peer discovery via UDP multicast
@@ -70,9 +70,9 @@ func (ds *DiscoveryService) Start() error {
 	// Create context for coordinating goroutines
 	ds.ctx, ds.cancel = context.WithCancel(context.Background())
 
-	log.Printf("🚀 Discovery service started")
-	log.Printf("   Local peer: %s (%s)", ds.localUsername, ds.localPeerID)
-	log.Printf("   TCP port: %d", ds.localTCPPort)
+	logger.Debug("🚀 Discovery service started")
+	logger.Debug("   Local peer: %s (%s)", ds.localUsername, ds.localPeerID)
+	logger.Debug("   TCP port: %d", ds.localTCPPort)
 
 	// Start background tasks
 	go ds.beaconLoop()
@@ -81,7 +81,7 @@ func (ds *DiscoveryService) Start() error {
 
 	// Send initial announcement
 	if err := ds.sendAnnouncement(); err != nil {
-		log.Printf("⚠️  Failed to send initial announcement: %v", err)
+		logger.Error("⚠️  Failed to send initial announcement: %v", err)
 	}
 
 	return nil
@@ -101,7 +101,7 @@ func (ds *DiscoveryService) Stop() error {
 			return fmt.Errorf("failed to stop multicast: %w", err)
 		}
 
-		log.Printf("👋 Discovery service stopped")
+		logger.Debug("👋 Discovery service stopped")
 	}
 	return nil
 }
@@ -129,11 +129,11 @@ func (ds *DiscoveryService) beaconLoop() {
 	for {
 		select {
 		case <-ds.ctx.Done():
-			log.Printf("🔊 Beacon loop stopping")
+			logger.Debug("🔊 Beacon loop stopping")
 			return
 		case <-ticker.C:
 			if err := ds.sendAnnouncement(); err != nil {
-				log.Printf("⚠️  Failed to send beacon: %v", err)
+				logger.Error("⚠️  Failed to send beacon: %v", err)
 			}
 		}
 	}
@@ -144,7 +144,7 @@ func (ds *DiscoveryService) receiveLoop() {
 	for {
 		select {
 		case <-ds.ctx.Done():
-			log.Printf("📡 Receive loop stopping")
+			logger.Debug("📡 Receive loop stopping")
 			return
 		default:
 			// Try to receive a message
@@ -168,7 +168,7 @@ func (ds *DiscoveryService) cleanupLoop() {
 	for {
 		select {
 		case <-ds.ctx.Done():
-			log.Printf("🧹 Cleanup loop stopping")
+			logger.Debug("🧹 Cleanup loop stopping")
 			return
 		case <-ticker.C:
 			ds.registry.CleanupStalePeers()
@@ -215,7 +215,7 @@ func (ds *DiscoveryService) handleDiscoveryMessage(msg *DiscoveryMessage, sender
 
 	// Check message age (ignore very old messages)
 	if !msg.IsRecent(30 * time.Second) {
-		log.Printf("⏰ Ignoring old message from %s", msg.Username)
+		logger.Debug("⏰ Ignoring old message from %s", msg.Username)
 		return
 	}
 
@@ -233,6 +233,6 @@ func (ds *DiscoveryService) handleDiscoveryMessage(msg *DiscoveryMessage, sender
 		ds.registry.AddOrUpdatePeer(msg, senderAddr)
 
 	default:
-		log.Printf("❓ Unknown message type: %s from %s", msg.Type, msg.Username)
+		logger.Debug("❓ Unknown message type: %s from %s", msg.Type, msg.Username)
 	}
 }

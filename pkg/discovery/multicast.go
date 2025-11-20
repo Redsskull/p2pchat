@@ -5,6 +5,8 @@ import (
 	"net"
 	"syscall"
 	"time"
+
+	"p2pchat/pkg/logger"
 )
 
 const (
@@ -61,7 +63,7 @@ func (ms *MulticastService) Start() error {
 		})
 	}
 
-	fmt.Printf("🔊 Multicast service listening on %s (local: %s)\n",
+	logger.Debug("🔊 Multicast service listening on %s (local: %s)",
 		ms.multicastAddr, ms.localAddr)
 
 	return nil
@@ -100,7 +102,7 @@ func (ms *MulticastService) Send(message *DiscoveryMessage) error {
 		return fmt.Errorf("failed to send multicast message: %w", err)
 	}
 
-	fmt.Printf("📤 Sent: %s (%d bytes)\n", message.String(), len(data))
+	logger.Debug("📤 Sent: %s (%d bytes)", message.String(), len(data))
 	return nil
 }
 
@@ -129,7 +131,7 @@ func (ms *MulticastService) ReceiveWithTimeout(timeout time.Duration) (*Discover
 		return nil, senderAddr, fmt.Errorf("failed to parse message from %s: %w", senderAddr, err)
 	}
 
-	fmt.Printf("📥 Received: %s from %s (%d bytes)\n",
+	logger.Debug("📥 Received: %s from %s (%d bytes)",
 		message.String(), senderAddr, n)
 
 	return message, senderAddr, nil
