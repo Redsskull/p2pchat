@@ -2,6 +2,7 @@ package ui
 
 import (
 	"p2pchat/pkg/chat"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -101,8 +102,15 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case StatusUpdateMsg:
 		if msg.IsError {
 			m.lastError = msg.Status
+			// Clear error after 5 seconds
+			go func() {
+				time.Sleep(5 * time.Second)
+				m.lastError = ""
+			}()
 		} else {
 			m.status = msg.Status
+			// Clear any previous errors on successful status
+			m.lastError = ""
 		}
 
 	// Handle periodic ticks
@@ -128,7 +136,22 @@ func (m ChatModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.focused == FocusInput && m.input.Value() != "" {
 			// Send the message!
 			content := m.input.Value()
+
+			// Validate message isn't too long
+			if len(content) > 1000 {
+				m.lastError = "Message too long (max 1000 characters)"
+				return m, nil
+			}
+
+			// Check if we have any peers
+			if len(m.peers) == 0 {
+				m.lastError = "No peers connected - waiting for others to join"
+				// Don't clear input, let them try again when peers connect
+				return m, nil
+			}
+
 			m.input.SetValue("") // Clear input
+			m.status = "Sending message..."
 			return m, SendMessageCmd(m.chatService, content)
 		} else if m.focused != FocusInput {
 			// Enter switches to input focus from other areas
@@ -149,41 +172,45 @@ func (m ChatModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.input.Focus()
 		}
 
-	// SCROLLING CONTROLS - New for Day 6!
-	case "up", "k":
-		if m.focused == FocusMessages || m.focused == FocusInput {
-			m.scrollUp(1)
-		}
-
-	case "down", "j":
-		if m.focused == FocusMessages || m.focused == FocusInput {
-			m.scrollDown(1)
-		}
-
-	case "pgup":
-		m.scrollUp(5) // Fast scroll up
-
-	case "pgdown":
-		m.scrollDown(5) // Fast scroll down
-
-	case "home":
-		// Go to oldest messages (top)
-		m.scrollOffset = m.maxScrollOffset
-		m.autoScroll = false
-
-	case "end":
-		// Go to newest messages (bottom)
-		m.scrollToBottom()
-
-	case "?":
-		m.showHelp = !m.showHelp
-
+	// Handle input first when focused - this fixes the 'k' and '?' bug
 	default:
-		// Let the input component handle typing when focused
 		if m.focused == FocusInput {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
+
+			// Clear any typing-related errors when user starts typing
+			if m.input.Value() != "" && m.lastError != "" {
+				// Clear certain types of errors when user is actively typing
+				if m.lastError == "Message too long (max 1000 characters)" ||
+					m.lastError == "No peers connected - waiting for others to join" {
+					m.lastError = ""
+				}
+			}
+
 			return m, cmd
+		}
+
+		// SCROLLING CONTROLS - Only when not actively typing
+		switch msg.String() {
+		case "k", "up":
+			if m.focused == FocusMessages {
+				m.scrollUp(1)
+			}
+		case "j", "down":
+			if m.focused == FocusMessages {
+				m.scrollDown(1)
+			}
+		case "pgup":
+			m.scrollUp(5)
+		case "pgdown":
+			m.scrollDown(5)
+		case "home":
+			m.scrollOffset = m.maxScrollOffset
+			m.autoScroll = false
+		case "end":
+			m.scrollToBottom()
+		case "?":
+			m.showHelp = !m.showHelp
 		}
 	}
 
