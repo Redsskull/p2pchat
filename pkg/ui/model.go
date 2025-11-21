@@ -20,9 +20,15 @@ type ChatModel struct {
 	peers    []PeerDisplay    // Connected peers to show in sidebar
 	input    textinput.Model  // Text input component for typing
 
-	// Window dimensions (Bubble Tea will tell  when terminal resizes)
-	width  int
-	height int
+	// Scroll state for message history
+	scrollOffset    int  // How many messages scrolled up from bottom (0 = at bottom)
+	maxScrollOffset int  // Maximum valid scroll offset
+	autoScroll      bool // Whether to auto-scroll to new messages (default: true)
+
+	// Window dimensions (Bubble Tea will know when terminal resizes)
+	width          int // Total window width
+	height         int // Total window height
+	chatAreaHeight int // Height available for messages (calculated)
 
 	// UI behavior state
 	focused  FocusArea // Which part of UI has focus
@@ -56,7 +62,7 @@ type FocusArea int
 const (
 	FocusInput    FocusArea = iota // User is typing a message
 	FocusPeers                     // User is browsing peer list
-	FocusMessages                  // User is scrolling through messages
+	FocusMessages                  // User is scrolling through messages - NEW!
 )
 
 // MessageType for styling different kinds of messages
@@ -77,12 +83,67 @@ func NewChatModel(chatService *chat.ChatService) ChatModel {
 	input.Focus()
 
 	return ChatModel{
-		chatService: chatService,
-		messages:    []DisplayMessage{},
-		peers:       []PeerDisplay{},
-		input:       input,
-		focused:     FocusInput,
-		showHelp:    false,
+		chatService:     chatService,
+		messages:        []DisplayMessage{},
+		peers:           []PeerDisplay{},
+		input:           input,
+		scrollOffset:    0,    // Start at bottom
+		maxScrollOffset: 0,    // No messages yet
+		autoScroll:      true, // Auto-scroll to new messages
+		focused:         FocusInput,
+		showHelp:        false,
+	}
+}
+
+// Scroll Management Methods
+
+// scrollUp moves the viewport up (showing older messages)
+func (m *ChatModel) scrollUp(lines int) {
+	m.scrollOffset += lines
+	if m.scrollOffset > m.maxScrollOffset {
+		m.scrollOffset = m.maxScrollOffset
+	}
+	// When user manually scrolls, disable auto-scroll
+	if m.scrollOffset > 0 {
+		m.autoScroll = false
+	}
+}
+
+// scrollDown moves the viewport down (showing newer messages)
+func (m *ChatModel) scrollDown(lines int) {
+	m.scrollOffset -= lines
+	if m.scrollOffset < 0 {
+		m.scrollOffset = 0
+		// When back at bottom, re-enable auto-scroll
+		m.autoScroll = true
+	}
+}
+
+// scrollToBottom immediately goes to newest messages
+func (m *ChatModel) scrollToBottom() {
+	m.scrollOffset = 0
+	m.autoScroll = true
+}
+
+// updateScrollBounds calculates maximum scroll offset based on messages and viewport
+func (m *ChatModel) updateScrollBounds() {
+	if m.chatAreaHeight <= 0 {
+		m.maxScrollOffset = 0
+		return
+	}
+
+	totalMessages := len(m.messages)
+	visibleMessages := m.chatAreaHeight
+
+	if totalMessages <= visibleMessages {
+		m.maxScrollOffset = 0
+	} else {
+		m.maxScrollOffset = totalMessages - visibleMessages
+	}
+
+	// Ensure current scroll position is still valid
+	if m.scrollOffset > m.maxScrollOffset {
+		m.scrollOffset = m.maxScrollOffset
 	}
 }
 

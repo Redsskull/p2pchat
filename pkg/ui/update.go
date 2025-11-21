@@ -17,12 +17,27 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.KeyMsg:
 		return m.handleKeyPress(msg)
 
-	// Handle window resizing
+	// Handle window resizing - THIS IS WHERE WE CALCULATE chatAreaHeight!
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+
+		// Calculate chat area height properly here (not in View!)
+		headerHeight := 1
+		inputHeight := 3 // Input field + border + padding
+		helpHeight := 1
+		usedHeight := headerHeight + inputHeight + helpHeight
+
+		m.chatAreaHeight = m.height - usedHeight
+		if m.chatAreaHeight < 3 {
+			m.chatAreaHeight = 3 // Minimum size
+		}
+
+		// Update scroll bounds when window resizes
+		m.updateScrollBounds()
+
 		// Resize input component too
-		m.input.Width = msg.Width - 4
+		m.input.Width = msg.Width - 8 // Account for borders
 
 	// Handle incoming chat messages from your P2P network!
 	case IncomingMessageMsg:
@@ -41,6 +56,18 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// Keep only last 1000 messages to prevent memory issues
 			if len(m.messages) > 1000 {
 				m.messages = m.messages[1:]
+				// Adjust scroll offset if we removed messages from the beginning
+				if m.scrollOffset > 0 {
+					m.scrollOffset--
+				}
+			}
+
+			// Update scroll bounds with new message
+			m.updateScrollBounds()
+
+			// Auto-scroll to new message if we're at the bottom
+			if m.autoScroll {
+				m.scrollOffset = 0
 			}
 		}
 
@@ -74,37 +101,68 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// handleKeyPress processes keyboard input
+// handleKeyPress processes keyboard input with scroll support
 func (m ChatModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
 	case "ctrl+c", "q":
 		return m, tea.Quit
 
 	case "enter":
-		// Send the message!
 		if m.focused == FocusInput && m.input.Value() != "" {
+			// Send the message!
 			content := m.input.Value()
 			m.input.SetValue("") // Clear input
-
-			// Send message via your ChatService
 			return m, SendMessageCmd(m.chatService, content)
-		}
-
-	case "tab":
-		// Switch focus between input and peer list
-		if m.focused == FocusInput {
-			m.focused = FocusPeers
-			m.input.Blur()
-		} else {
+		} else if m.focused != FocusInput {
+			// Enter switches to input focus from other areas
 			m.focused = FocusInput
 			m.input.Focus()
 		}
+
+	// TAB: Switch between focus areas
+	case "tab":
+		switch m.focused {
+		case FocusInput:
+			m.focused = FocusMessages
+			m.input.Blur()
+		case FocusMessages:
+			m.focused = FocusPeers
+		case FocusPeers:
+			m.focused = FocusInput
+			m.input.Focus()
+		}
+
+	// SCROLLING CONTROLS - New for Day 6!
+	case "up", "k":
+		if m.focused == FocusMessages || m.focused == FocusInput {
+			m.scrollUp(1)
+		}
+
+	case "down", "j":
+		if m.focused == FocusMessages || m.focused == FocusInput {
+			m.scrollDown(1)
+		}
+
+	case "pgup":
+		m.scrollUp(5) // Fast scroll up
+
+	case "pgdown":
+		m.scrollDown(5) // Fast scroll down
+
+	case "home":
+		// Go to oldest messages (top)
+		m.scrollOffset = m.maxScrollOffset
+		m.autoScroll = false
+
+	case "end":
+		// Go to newest messages (bottom)
+		m.scrollToBottom()
 
 	case "?":
 		m.showHelp = !m.showHelp
 
 	default:
-		// Let the input component handle typing
+		// Let the input component handle typing when focused
 		if m.focused == FocusInput {
 			var cmd tea.Cmd
 			m.input, cmd = m.input.Update(msg)
