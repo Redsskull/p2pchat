@@ -39,6 +39,23 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Resize input component too
 		m.input.Width = msg.Width - 8 // Account for borders
 
+	// NEW: Handle loading message history on startup
+	case MessageHistoryMsg:
+		// Convert chat messages to display messages
+		for _, msg := range msg.Messages {
+			displayMsg := DisplayMessage{
+				Content:   msg.Content,
+				Username:  msg.Username,
+				Timestamp: msg.Timestamp,
+				Type:      convertMessageType(msg.Type),
+			}
+			m.messages = append(m.messages, displayMsg)
+		}
+
+		// Update scroll bounds and stay at bottom for new session
+		m.updateScrollBounds()
+		m.scrollToBottom()
+
 	// Handle incoming chat messages from your P2P network!
 	case IncomingMessageMsg:
 		if msg.Message != nil {
@@ -188,9 +205,14 @@ func convertMessageType(chatType chat.MessageType) MessageType {
 func convertPeersToDisplay(peers []chat.PeerInfo) []PeerDisplay {
 	display := make([]PeerDisplay, len(peers))
 	for i, peer := range peers {
+		status := "disconnected"
+		if peer.Connected {
+			status = "connected"
+		}
+
 		display[i] = PeerDisplay{
 			Username: peer.Username,
-			Status:   peer.ConnectionState,
+			Status:   status,
 			Address:  peer.Address,
 			LastSeen: peer.LastSeen,
 		}

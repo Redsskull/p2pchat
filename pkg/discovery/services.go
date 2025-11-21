@@ -31,7 +31,7 @@ type DiscoveryService struct {
 }
 
 // NewDiscoveryService creates a new discovery service
-func NewDiscoveryService(username string, tcpPort int, multicastAddr string) (*DiscoveryService, error) {
+func NewDiscoveryService(peerID, username string, tcpPort int, multicastAddr string) (*DiscoveryService, error) {
 	// Create multicast service
 	multicast, err := NewMulticastService(multicastAddr)
 	if err != nil {
@@ -41,8 +41,7 @@ func NewDiscoveryService(username string, tcpPort int, multicastAddr string) (*D
 	// Create peer registry
 	registry := NewPeerRegistry()
 
-	// Generate unique peer ID
-	peerID := fmt.Sprintf("%s_%d", username, time.Now().Unix())
+	// Use the provided peer ID to ensure consistency across services
 
 	return &DiscoveryService{
 		multicast:       multicast,

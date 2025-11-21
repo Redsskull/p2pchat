@@ -12,6 +12,11 @@ type IncomingMessageMsg struct {
 	Message *chat.Message
 }
 
+// NEW: Message for loading existing chat history
+type MessageHistoryMsg struct {
+	Messages []*chat.Message
+}
+
 type PeerUpdateMsg struct {
 	Peers []chat.PeerInfo
 }
@@ -30,6 +35,14 @@ func ListenForMessages(chatService *chat.ChatService) tea.Cmd {
 		case <-time.After(100 * time.Millisecond):
 			return nil
 		}
+	}
+}
+
+// NEW: Load existing message history from ChatService
+func LoadMessageHistory(chatService *chat.ChatService) tea.Cmd {
+	return func() tea.Msg {
+		messages := chatService.GetMessageHistory()
+		return MessageHistoryMsg{Messages: messages}
 	}
 }
 

@@ -28,18 +28,21 @@ type ChatService struct {
 	messageSequence  uint64        // Atomic counter for message ordering
 	incomingMessages chan *Message // Channel for UI to receive messages
 
+	// NEW: Enhanced Message History System
+	messageHistory *MessageHistory // In-memory message storage with duplicate detection
+
 	// Lifecycle
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-// NewChatService creates a new integrated chat service
+// NewChatService creates a new integrated chat service with message history
 func NewChatService(peerID, username string, port int, multicastAddr string) (*ChatService, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Create discovery service
-	discoveryService, err := discovery.NewDiscoveryService(username, port, multicastAddr)
+	discoveryService, err := discovery.NewDiscoveryService(peerID, username, port, multicastAddr)
 	if err != nil {
 		cancel()
 		return nil, fmt.Errorf("failed to create discovery service: %w", err)
@@ -48,6 +51,9 @@ func NewChatService(peerID, username string, port int, multicastAddr string) (*C
 	// Create connection manager
 	connectionManager := NewConnectionManager(peerID, username, port)
 
+	// Create message history with reasonable limits
+	messageHistory := NewMessageHistory(1000) // Keep last 1000 messages
+
 	service := &ChatService{
 		peerID:           peerID,
 		username:         username,
@@ -55,6 +61,7 @@ func NewChatService(peerID, username string, port int, multicastAddr string) (*C
 		discovery:        discoveryService,
 		connections:      connectionManager,
 		incomingMessages: make(chan *Message, 100), // Buffer incoming messages for UI
+		messageHistory:   messageHistory,           // NEW: Message history storage
 		ctx:              ctx,
 		cancel:           cancel,
 	}
@@ -97,15 +104,23 @@ func (cs *ChatService) setupIntegration() {
 	cs.connections.SetMessageHandler(func(msg *Message, fromPeerID string) {
 		logger.Debug("📨 Received message from %s: %s", msg.Username, msg.Content)
 
+		// NEW: Add to message history with duplicate detection
+		added := cs.messageHistory.AddMessage(msg)
+		if !added {
+			// Message was duplicate or filtered out (heartbeat, etc.)
+			logger.Debug("⏩ Skipping message (duplicate or filtered): %s", msg.ID)
+			return
+		}
+
 		// Forward message to UI (this is how messages reach the human!)
 		select {
 		case cs.incomingMessages <- msg:
 			// Message delivered to UI
+			logger.Debug("✅ Message forwarded to UI: %s", msg.Content)
 		default:
 			// UI message buffer full - this shouldn't happen in normal use
 			logger.Error("⚠️ UI message buffer full, dropping message from %s", msg.Username)
 		}
-
 	})
 
 }
@@ -146,10 +161,14 @@ func (cs *ChatService) SendMessage(content string) error {
 	// Broadcast to all connected peers - this is the magic moment!
 	cs.connections.Broadcast(msg)
 
+	// NEW: Add our own message to history
+	cs.messageHistory.AddMessage(msg)
+
 	// Also add to our own message stream for the UI
 	select {
 	case cs.incomingMessages <- msg:
 		// Our own message appears in our UI too
+		logger.Debug("✅ Own message forwarded to UI: %s", content)
 	default:
 		// Buffer full - very unlikely
 		logger.Error("⚠️ Failed to add own message to UI buffer")
@@ -302,4 +321,34 @@ func (cs *ChatService) Stop() error {
 
 	logger.Debug("✅ Chat service stopped")
 	return err
+}
+
+// GetMessageHistory returns all stored messages in chronological order
+func (cs *ChatService) GetMessageHistory() []*Message {
+	return cs.messageHistory.GetMessages()
+}
+
+// GetRecentMessages returns the most recent N messages
+func (cs *ChatService) GetRecentMessages(limit int) []*Message {
+	return cs.messageHistory.GetRecentMessages(limit)
+}
+
+// GetChatMessages returns only chat messages (excluding join/leave notifications)
+func (cs *ChatService) GetChatMessages() []*Message {
+	return cs.messageHistory.GetMessages(MessageTypeChat)
+}
+
+// GetMessageStats returns statistics about the message history
+func (cs *ChatService) GetMessageStats() MessageHistoryStats {
+	return cs.messageHistory.GetStats()
+}
+
+// ClearMessageHistory clears all stored messages
+func (cs *ChatService) ClearMessageHistory() {
+	cs.messageHistory.Clear()
+}
+
+// GetMessageCount returns the total number of stored messages
+func (cs *ChatService) GetMessageCount() int {
+	return cs.messageHistory.GetMessageCount()
 }

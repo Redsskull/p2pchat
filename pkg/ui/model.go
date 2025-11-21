@@ -150,8 +150,9 @@ func (m *ChatModel) updateScrollBounds() {
 // Init returns initial commands when the app starts
 func (m ChatModel) Init() tea.Cmd {
 	return tea.Batch(
-		ListenForMessages(m.chatService), // Start listening for P2P messages
-		UpdatePeers(m.chatService),       // Get initial peer list
-		PeriodicPeerUpdate(),             // Start periodic peer updates
+		LoadMessageHistory(m.chatService), // NEW: Load existing message history
+		ListenForMessages(m.chatService),  // Start listening for P2P messages
+		UpdatePeers(m.chatService),        // Get initial peer list
+		PeriodicPeerUpdate(),              // Start periodic peer updates
 	)
 }

@@ -26,8 +26,11 @@ func main() {
 	fmt.Println("Press Ctrl+C to quit")
 	fmt.Println()
 
+	// Generate peer ID for consistency
+	peerID := fmt.Sprintf("%s_%d", *username, time.Now().Unix()%1000)
+
 	// Create discovery service
-	service, err := discovery.NewDiscoveryService(*username, *port, *multicast)
+	service, err := discovery.NewDiscoveryService(peerID, *username, *port, *multicast)
 	if err != nil {
 		log.Fatalf("Failed to create discovery service: %v", err)
 	}

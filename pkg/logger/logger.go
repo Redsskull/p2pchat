@@ -43,14 +43,14 @@ func ToFile(filename string) error {
 }
 
 // Convenience functions
-func Debug(format string, v ...interface{}) {
+func Debug(format string, v ...any) {
 	DebugLogger.Printf(format, v...)
 }
 
-func Info(format string, v ...interface{}) {
+func Info(format string, v ...any) {
 	InfoLogger.Printf(format, v...)
 }
 
-func Error(format string, v ...interface{}) {
+func Error(format string, v ...any) {
 	ErrorLogger.Printf(format, v...)
 }
