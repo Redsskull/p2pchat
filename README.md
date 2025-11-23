@@ -1,5 +1,7 @@
 # P2P Chat
 
+[![asciicast](https://asciinema.org/a/ykPnzDlq7LGyskLnWRf5NWO1T.svg)](https://asciinema.org/a/ykPnzDlq7LGyskLnWRf5NWO1T)
+
 A peer-to-peer IRC-style chat system built in Go with a terminal interface. Connect directly with other users on your local network without needing a central server.
 
 ## Features
@@ -21,14 +23,21 @@ git clone <repository-url>
 cd p2pchat
 go build -o p2pchat cmd/p2pchat/main.go
 
-# Start chatting (Terminal 1)
+# Interactive mode (recommended for first-time users)
+./p2pchat
+# You'll be prompted for username, port is auto-assigned
+
+# Or specify username directly (port auto-assigned)
+./p2pchat -username alice
+
+# Full manual configuration
 ./p2pchat -username alice -port 8080
 
-# Start second user (Terminal 2) 
-./p2pchat -username bob -port 8081
+# Debug mode with interactive setup
+./p2pchat -debug
 
-# Debug mode (logs to file)
-./p2pchat -username charlie -port 8082 -debug
+# Try the interactive demo script
+./demo-interactive.sh
 ```
 
 ## How It Works
@@ -52,11 +61,125 @@ P2P Chat uses UDP multicast for peer discovery on your local network, then estab
 ## Command Line Options
 
 ```
--username string    Your display name in chat
--port int          TCP port for peer connections (default: 8080)
+-username string    Your display name in chat (interactive prompt if not provided)
+-port int          TCP port for peer connections (auto-assigned if not provided)  
 -multicast string  Multicast address for discovery (default: 224.0.0.1:9999)
--debug             Enable debug logging
+-debug             Enable debug logging to file
 -help              Show help message
+```
+
+### Usage Examples
+
+**Interactive Mode (Recommended)**
+```bash
+./p2pchat
+# Prompts for username, auto-assigns port
+```
+
+**Quick Start with Username**
+```bash
+./p2pchat -username alice
+# Uses specified username, auto-assigns port
+```
+
+**Full Manual Configuration**
+```bash
+./p2pchat -username alice -port 8080
+# Specify both username and port
+```
+
+**Debug Mode**
+```bash
+./p2pchat -username alice -debug
+# Enable debug logging to p2pchat-debug.log
+```
+
+**Help**
+```bash
+./p2pchat -help
+# Show all available options
+```
+
+## Interactive Demo Script
+
+I've included a comprehensive demo script that showcases all the new interactive features:
+
+```bash
+./demo-interactive.sh
+```
+
+The demo script offers 6 different modes:
+
+1. **Interactive Mode** - Experience the full interactive setup
+2. **Quick Start** - Username specified, port auto-assigned  
+3. **Manual Configuration** - Full control over settings
+4. **Debug Mode** - Interactive setup with debug logging
+5. **Help Message** - View all available options
+6. **Multi-User Simulation** - See automatic port assignment in action
+
+### Running the Demo
+
+```bash
+# Make sure you've built the application first
+go build -o p2pchat cmd/p2pchat/main.go
+
+# Make the demo script executable (if needed)
+chmod +x demo-interactive.sh
+
+# Run the interactive demo
+./demo-interactive.sh
+```
+
+The demo is perfect for:
+- First-time users wanting to explore features
+- Demonstrating the app to others
+- Testing different configuration options
+- Understanding automatic port assignment
+
+### Live Demo Recording
+
+See P2P Chat in action with real multi-user chat session:
+
+[![asciicast](https://asciinema.org/a/ykPnzDlq7LGyskLnWRf5NWO1T.svg)](https://asciinema.org/a/ykPnzDlq7LGyskLnWRf5NWO1T)
+
+*Note: This recording shows the actual P2P Chat in action with real users chatting, demonstrating the beautiful terminal UI, automatic peer discovery, real-time messaging, and seamless multi-user experience.*
+
+#### Recording Details
+
+This live recording was created from the `p2pchat.cast` file included in this repository, showing actual multi-user P2P chat in action.
+
+To create your own recording:
+
+```bash
+# Record a new demo session
+asciinema rec my-p2pchat-demo.cast
+# (use the application, then exit)
+asciinema upload my-p2pchat-demo.cast
+```
+
+## Automatic Port Assignment
+
+P2P Chat intelligently handles port assignment to make connecting multiple users effortless:
+
+- **Automatic Range**: Searches ports 8080-8999 for first available port
+- **Collision Detection**: Automatically finds free ports when multiple users start simultaneously
+- **System Fallback**: Uses system-assigned port if preferred range is exhausted
+- **Manual Override**: Command line `-port` flag still works for specific port requirements
+
+This means you can easily start multiple chat instances without worrying about port conflicts:
+
+```bash
+# Terminal 1
+./p2pchat -username alice
+# Auto-assigns port 8080
+
+# Terminal 2 
+./p2pchat -username bob  
+# Auto-assigns port 8081 (8080 was taken)
+
+# Terminal 3
+./p2pchat -username charlie
+# Auto-assigns port 8082 (8080, 8081 were taken)
 ```
 
 ## Message Protocol

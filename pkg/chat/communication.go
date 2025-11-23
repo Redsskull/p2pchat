@@ -222,7 +222,7 @@ func (cm *ConnectionManager) ConnectToPeer(p *peer.Peer) error {
 		return nil // Already connected or connecting
 	}
 
-	// Leader election: Only connect if our peer ID is smaller
+	// Leader election: Only connect if peer ID is smaller
 	// This prevents duplicate connections and race conditions
 	if cm.localPeerID >= p.ID {
 		logger.Debug("⏳ Waiting for %s to connect to us (peer ID ordering)", p.Username)

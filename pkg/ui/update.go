@@ -119,7 +119,6 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, UpdatePeers(m.chatService))
 	}
 
-	// CRITICAL FIX: Always restart message listening
 	// This ensures we never stop listening for P2P messages
 	cmds = append(cmds, ListenForMessages(m.chatService))
 
