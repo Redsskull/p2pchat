@@ -41,7 +41,20 @@ func (m ChatModel) View() string {
 		statusText = "Ready to chat"
 	}
 
-	headerContent := "🗨️  P2P Chat - " + statusText
+	// Compact ASCII art banner for visual impact
+	bannerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true)
+
+	banner := bannerStyle.Render("  ╔══╗ ╔═╗ ╔══╗   ╔═══╗ ╦ ╦ ╔══╗ ╔════╗")
+	banner2 := bannerStyle.Render("  ╠══╝ ╔═╝ ╠══╝   ║     ╠═╣ ╠══╣   ║  ")
+	banner3 := bannerStyle.Render("  ╩    ╚═╝ ╩      ╚═══╝ ╩ ╩ ╩  ╩   ╩  ")
+
+	statusStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("15")).
+		Italic(true)
+
+	headerContent := banner + "\n" + banner2 + "\n" + banner3 + "\n" + statusStyle.Render("  🌐 Decentralized Mesh Network • "+statusText)
 
 	// Add error display if there's an error
 	if m.lastError != "" {
@@ -215,10 +228,15 @@ func (m ChatModel) renderChatArea() string {
 	return result
 }
 
-// renderPeerList renders the connected peers sidebar with status indicators
+// renderPeerList renders the connected peers sidebar with enhanced status indicators
 func (m ChatModel) renderPeerList() string {
 	var peerStrings []string
-	peerStrings = append(peerStrings, "🌐 Connected Peers")
+
+	// Enhanced header with ASCII art
+	headerStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("39")).
+		Bold(true)
+	peerStrings = append(peerStrings, headerStyle.Render("╭─ P2P NETWORK ─╮"))
 	peerStrings = append(peerStrings, "")
 
 	if len(m.peers) == 0 {
@@ -229,40 +247,69 @@ func (m ChatModel) renderPeerList() string {
 		peerStrings = append(peerStrings, emptyStyle.Render("No peers found"))
 		peerStrings = append(peerStrings, "")
 		peerStrings = append(peerStrings, emptyStyle.Render("🔍 Searching..."))
-		peerStrings = append(peerStrings, emptyStyle.Render(""))
-		peerStrings = append(peerStrings, emptyStyle.Render("💡 Make sure other"))
-		peerStrings = append(peerStrings, emptyStyle.Render("users are running"))
-		peerStrings = append(peerStrings, emptyStyle.Render("p2pchat on the same"))
-		peerStrings = append(peerStrings, emptyStyle.Render("network"))
+		peerStrings = append(peerStrings, "")
+		peerStrings = append(peerStrings, emptyStyle.Render("💡 Start p2pchat on"))
+		peerStrings = append(peerStrings, emptyStyle.Render("other devices to"))
+		peerStrings = append(peerStrings, emptyStyle.Render("begin chatting"))
 		return strings.Join(peerStrings, "\n")
 	}
 
+	// Enhanced peer display with connection quality
 	for _, peer := range m.peers {
-		var statusIcon string
+		qualityIndicator := m.getConnectionQualityIndicator(peer.Status)
+		userColor := m.getUserColor(peer.Username)
 
+		// Style the username with consistent colors
+		usernameStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color(userColor)).
+			Bold(true)
+
+		// Connection status styling
+		var statusStyle lipgloss.Style
 		switch peer.Status {
 		case "connected":
-			statusIcon = "🟢"
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("34")) // Green
 		case "connecting":
-			statusIcon = "🟡"
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("214")) // Orange
 		default:
-			statusIcon = "🔴"
+			statusStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("160")) // Red
 		}
 
-		peerStr := fmt.Sprintf("%s %s", statusIcon, peer.Username)
+		styledIndicator := statusStyle.Render(qualityIndicator)
+		styledUsername := usernameStyle.Render(peer.Username)
+
+		peerStr := fmt.Sprintf("%s %s", styledIndicator, styledUsername)
+
 		peerStrings = append(peerStrings, peerStr)
 	}
 
-	// Add connection stats
+	// Enhanced connection statistics
 	connected := 0
+	connecting := 0
 	for _, peer := range m.peers {
-		if peer.Status == "connected" {
+		switch peer.Status {
+		case "connected":
 			connected++
+		case "connecting":
+			connecting++
 		}
 	}
 
 	peerStrings = append(peerStrings, "")
-	peerStrings = append(peerStrings, fmt.Sprintf("📊 %d/%d active", connected, len(m.peers)))
+
+	// Network topology info
+	if connected > 0 {
+		meshStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("34")).
+			Bold(true)
+		peerStrings = append(peerStrings, meshStyle.Render("🔗 Full Mesh Active"))
+
+		statsStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+		peerStrings = append(peerStrings, statsStyle.Render(fmt.Sprintf("   %d connected", connected)))
+		if connecting > 0 {
+			peerStrings = append(peerStrings, statsStyle.Render(fmt.Sprintf("   %d connecting", connecting)))
+		}
+	}
 
 	return strings.Join(peerStrings, "\n")
 }
@@ -313,7 +360,7 @@ func (m ChatModel) renderHelpText() string {
 
 // getUserColor returns a consistent color for each user based on their username
 func (m ChatModel) getUserColor(username string) string {
-	// Beautiful color palette for users
+	// Enhanced color palette for better visual distinction
 	colors := []string{
 		"39",  // Bright blue
 		"203", // Pink
@@ -325,15 +372,34 @@ func (m ChatModel) getUserColor(username string) string {
 		"196", // Red
 		"117", // Light blue
 		"205", // Magenta
+		"51",  // Turquoise
+		"166", // Dark orange
+		"135", // Light purple
+		"82",  // Lime green
+		"220", // Gold
 	}
 
-	// Simple hash function to assign consistent colors
+	// Improved hash function for better distribution
 	hash := 0
-	for _, char := range username {
-		hash += int(char)
+	for i, char := range username {
+		hash += int(char) * (i + 1)
 	}
 
 	return colors[hash%len(colors)]
+}
+
+// getConnectionQualityIndicator returns a visual indicator for connection quality
+func (m ChatModel) getConnectionQualityIndicator(status string) string {
+	switch status {
+	case "connected":
+		return "●" // Solid circle - excellent
+	case "connecting":
+		return "◐" // Half circle - connecting
+	case "disconnected":
+		return "○" // Empty circle - offline
+	default:
+		return "◯" // Different empty circle - unknown
+	}
 }
 
 // wrapMessage intelligently wraps long messages with proper indentation

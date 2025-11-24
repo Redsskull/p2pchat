@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"fmt"
 	"p2pchat/pkg/chat"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -50,11 +52,8 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Timestamp: msg.Timestamp,
 				Type:      convertMessageType(msg.Type),
 			}
-			m.messages = append(m.messages, displayMsg)
+			m.addMessage(displayMsg)
 		}
-
-		// Update scroll bounds and stay at bottom for new session
-		m.updateScrollBounds()
 		m.scrollToBottom()
 
 	// Handle incoming chat messages from your P2P network!
@@ -68,17 +67,8 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				Type:      convertMessageType(msg.Message.Type),
 			}
 
-			// Add to our message history
-			m.messages = append(m.messages, displayMsg)
-
-			// Keep only last 1000 messages to prevent memory issues
-			if len(m.messages) > 1000 {
-				m.messages = m.messages[1:]
-				// Adjust scroll offset if we removed messages from the beginning
-				if m.scrollOffset > 0 {
-					m.scrollOffset--
-				}
-			}
+			// Add to our message history using optimized function
+			m.addMessage(displayMsg)
 
 			// Update scroll bounds with new message
 			m.updateScrollBounds()
@@ -125,6 +115,146 @@ func (m ChatModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
+// handleChatCommand processes IRC-style chat commands
+func (m ChatModel) handleChatCommand(command string) (ChatModel, tea.Cmd) {
+	parts := strings.Fields(command)
+	if len(parts) == 0 {
+		return m, nil
+	}
+
+	cmd := strings.ToLower(parts[0])
+
+	switch cmd {
+	case "/help", "/h":
+		return m.showHelpMessage()
+
+	case "/users", "/who":
+		return m.showUsersList()
+
+	case "/quit", "/q", "/exit":
+		return m, tea.Quit
+
+	case "/nick":
+		if len(parts) < 2 {
+			m.lastError = "Usage: /nick <new_username>"
+			return m, nil
+		}
+		newUsername := parts[1]
+		return m.changeUsername(newUsername)
+
+	case "/clear":
+		return m.clearMessages()
+
+	default:
+		m.lastError = fmt.Sprintf("Unknown command: %s. Type /help for available commands.", cmd)
+		return m, nil
+	}
+}
+
+// showHelpMessage displays available chat commands
+func (m ChatModel) showHelpMessage() (ChatModel, tea.Cmd) {
+	helpMsg := DisplayMessage{
+		Content:   "Available commands:\n/help - Show this help\n/users - List connected users\n/nick <name> - Change username\n/clear - Clear message history\n/quit - Exit chat",
+		Username:  "System",
+		Timestamp: time.Now(),
+		Type:      MessageTypeSystem,
+		Style:     "help",
+	}
+
+	m.addMessage(helpMsg)
+	if m.autoScroll {
+		m.scrollToBottom()
+	}
+
+	return m, nil
+}
+
+// showUsersList displays connected peers
+func (m ChatModel) showUsersList() (ChatModel, tea.Cmd) {
+	var content string
+	if len(m.peers) == 0 {
+		content = "No other users connected. Waiting for peers to join..."
+	} else {
+		var userList strings.Builder
+		userList.WriteString("Connected users:\n")
+		for _, peer := range m.peers {
+			status := "●" // online indicator
+			if peer.Status != "connected" {
+				status = "◯" // offline indicator
+			}
+			userList.WriteString(fmt.Sprintf("  %s %s (%s)\n", status, peer.Username, peer.Status))
+		}
+		content = userList.String()
+	}
+
+	userMsg := DisplayMessage{
+		Content:   content,
+		Username:  "System",
+		Timestamp: time.Now(),
+		Type:      MessageTypeSystem,
+		Style:     "users",
+	}
+
+	m.addMessage(userMsg)
+	if m.autoScroll {
+		m.scrollToBottom()
+	}
+
+	return m, nil
+}
+
+// changeUsername changes the user's display name
+func (m ChatModel) changeUsername(newUsername string) (ChatModel, tea.Cmd) {
+	// Validate username
+	if len(newUsername) == 0 {
+		m.lastError = "Username cannot be empty"
+		return m, nil
+	}
+	if len(newUsername) > 20 {
+		m.lastError = "Username too long (max 20 characters)"
+		return m, nil
+	}
+	if strings.ContainsAny(newUsername, " \t\n\r") {
+		m.lastError = "Username cannot contain spaces"
+		return m, nil
+	}
+
+	// Create system message about the change
+	changeMsg := DisplayMessage{
+		Content:   fmt.Sprintf("You changed your username to: %s", newUsername),
+		Username:  "System",
+		Timestamp: time.Now(),
+		Type:      MessageTypeSystem,
+		Style:     "nick",
+	}
+
+	m.addMessage(changeMsg)
+	if m.autoScroll {
+		m.scrollToBottom()
+	}
+
+	// Actually change username in chat service
+	err := m.chatService.ChangeUsername(newUsername)
+	if err != nil {
+		m.lastError = fmt.Sprintf("Failed to change username: %v", err)
+		return m, nil
+	}
+
+	m.status = fmt.Sprintf("Username changed to: %s", newUsername)
+
+	return m, nil
+}
+
+// clearMessages clears the message history
+func (m ChatModel) clearMessages() (ChatModel, tea.Cmd) {
+	m.messages = []DisplayMessage{}
+	m.scrollOffset = 0
+	m.maxScrollOffset = 0
+	m.status = "Message history cleared"
+
+	return m, nil
+}
+
 // handleKeyPress processes keyboard input with scroll support
 func (m ChatModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch msg.String() {
@@ -133,8 +263,14 @@ func (m ChatModel) handleKeyPress(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	case "enter":
 		if m.focused == FocusInput && m.input.Value() != "" {
-			// Send the message!
+			// Get the message content
 			content := m.input.Value()
+
+			// Check if it's a command
+			if strings.HasPrefix(content, "/") {
+				m.input.SetValue("") // Clear input
+				return m.handleChatCommand(content)
+			}
 
 			// Validate message isn't too long
 			if len(content) > 1000 {

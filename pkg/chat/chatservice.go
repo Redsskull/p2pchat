@@ -352,3 +352,34 @@ func (cs *ChatService) ClearMessageHistory() {
 func (cs *ChatService) GetMessageCount() int {
 	return cs.messageHistory.GetMessageCount()
 }
+
+// ChangeUsername changes the user's display name and notifies peers
+func (cs *ChatService) ChangeUsername(newUsername string) error {
+	if newUsername == "" {
+		return fmt.Errorf("username cannot be empty")
+	}
+	if len(newUsername) > 20 {
+		return fmt.Errorf("username too long (max 20 characters)")
+	}
+
+	oldUsername := cs.username
+	cs.username = newUsername
+
+	// Send notification to all peers about the username change
+	changeMsg := NewChatMessage(cs.peerID, cs.username,
+		fmt.Sprintf("%s changed their name to %s", oldUsername, newUsername),
+		cs.nextSequence())
+	changeMsg.Type = MessageTypeJoin // Reuse join type for name changes
+
+	cs.connections.Broadcast(changeMsg)
+
+	// Add to our own message history
+	cs.messageHistory.AddMessage(changeMsg)
+
+	return nil
+}
+
+// GetUsername returns the current username
+func (cs *ChatService) GetUsername() string {
+	return cs.username
+}

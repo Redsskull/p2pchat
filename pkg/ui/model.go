@@ -16,9 +16,10 @@ type ChatModel struct {
 	chatService *chat.ChatService
 
 	// UI State
-	messages []DisplayMessage // All chat messages to show
-	peers    []PeerDisplay    // Connected peers to show in sidebar
-	input    textinput.Model  // Text input component for typing
+	messages    []DisplayMessage // All chat messages to show
+	peers       []PeerDisplay    // Connected peers to show in sidebar
+	input       textinput.Model  // Text input component for typing
+	maxMessages int              // Maximum messages to keep in UI (performance optimization)
 
 	// Scroll state for message history
 	scrollOffset    int  // How many messages scrolled up from bottom (0 = at bottom)
@@ -87,6 +88,7 @@ func NewChatModel(chatService *chat.ChatService) ChatModel {
 		messages:        []DisplayMessage{},
 		peers:           []PeerDisplay{},
 		input:           input,
+		maxMessages:     500,  // UI limit lower than backend (1000) for performance
 		scrollOffset:    0,    // Start at bottom
 		maxScrollOffset: 0,    // No messages yet
 		autoScroll:      true, // Auto-scroll to new messages
@@ -155,4 +157,26 @@ func (m ChatModel) Init() tea.Cmd {
 		UpdatePeers(m.chatService),        // Get initial peer list
 		PeriodicPeerUpdate(),              // Start periodic peer updates
 	)
+}
+
+// addMessage adds a message to the UI with performance optimization
+func (m *ChatModel) addMessage(msg DisplayMessage) {
+	m.messages = append(m.messages, msg)
+
+	// Performance optimization: limit UI messages
+	if len(m.messages) > m.maxMessages {
+		// Remove oldest 20% of messages to avoid frequent cleanup
+		removeCount := m.maxMessages / 5
+		copy(m.messages, m.messages[removeCount:])
+		m.messages = m.messages[:len(m.messages)-removeCount]
+
+		// Adjust scroll offset to maintain position
+		if m.scrollOffset > removeCount {
+			m.scrollOffset -= removeCount
+		} else {
+			m.scrollOffset = 0
+		}
+	}
+
+	m.updateScrollBounds()
 }
