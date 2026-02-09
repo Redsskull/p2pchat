@@ -25,10 +25,10 @@ type ChatService struct {
 	connections *ConnectionManager
 
 	// Message handling
-	messageSequence  uint64        // Atomic counter for message ordering
+	messageSequence  uint64        // Counter for message ordering
 	incomingMessages chan *Message // Channel for UI to receive messages
 
-	// NEW: Enhanced Message History System
+	// Enhanced Message History System
 	messageHistory *MessageHistory // In-memory message storage with duplicate detection
 
 	// Lifecycle
@@ -61,12 +61,12 @@ func NewChatService(peerID, username string, port int, multicastAddr string) (*C
 		discovery:        discoveryService,
 		connections:      connectionManager,
 		incomingMessages: make(chan *Message, 100), // Buffer incoming messages for UI
-		messageHistory:   messageHistory,           // NEW: Message history storage
+		messageHistory:   messageHistory,           // Message history storage
 		ctx:              ctx,
 		cancel:           cancel,
 	}
 
-	// Set up the beautiful integration between discovery and connections
+	// Set up the integration between discovery and connections
 	service.setupIntegration()
 
 	return service, nil
@@ -104,7 +104,7 @@ func (cs *ChatService) setupIntegration() {
 	cs.connections.SetMessageHandler(func(msg *Message, fromPeerID string) {
 		logger.Debug("📨 Received message from %s: %s", msg.Username, msg.Content)
 
-		// NEW: Add to message history with duplicate detection
+		// Add to message history with duplicate detection
 		added := cs.messageHistory.AddMessage(msg)
 		if !added {
 			// Message was duplicate or filtered out (heartbeat, etc.)

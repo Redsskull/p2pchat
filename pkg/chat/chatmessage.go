@@ -131,7 +131,7 @@ func FromJSON(data []byte) (*Message, error) {
 // Utility methods
 
 // IsUserVisible returns true if this message should be shown to users
-// (heartbeats are typically hidden from the UI)
+// (heartbeats are hidden from the UI)
 func (m *Message) IsUserVisible() bool {
 	return m.Type != MessageTypeHeartbeat
 }

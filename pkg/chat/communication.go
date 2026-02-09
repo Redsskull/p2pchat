@@ -126,7 +126,7 @@ func (cm *ConnectionManager) acceptConnections() {
 		case <-cm.ctx.Done():
 			return
 		default:
-			// Set a timeout so we can check for context cancellation
+			// Set a timeout so I can check for context cancellation
 			if tcpListener, ok := cm.listener.(*net.TCPListener); ok {
 				tcpListener.SetDeadline(time.Now().Add(5 * time.Second))
 			}

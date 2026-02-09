@@ -67,21 +67,24 @@ func TestPortRangeLogic(t *testing.T) {
 }
 
 func TestMultiplePortAssignments(t *testing.T) {
-	// Test that we can get multiple different ports
 	var listeners []net.Listener
 	var ports []int
+	portSeen := make(map[int]bool) // Friend suggested this today. I didn't even know about maps.
 
-	// Try to get several ports
 	for i := 0; i < 5; i++ {
 		port := findAvailablePort()
 
-		// Bind to this port to make it unavailable
-		listener, err := net.Listen("tcp", net.JoinHostPort("", fmt.Sprintf("%d", port)))
+		// Check for duplicates
+		if portSeen[port] {
+			t.Errorf("Got duplicate port %d", port)
+		}
+		portSeen[port] = true
+
+		listener, err := net.Listen("tcp", fmt.Sprintf(":%d", port))
 		if err != nil {
 			t.Logf("Could not bind to port %d: %v", port, err)
 			continue
 		}
-
 		listeners = append(listeners, listener)
 		ports = append(ports, port)
 	}
@@ -91,13 +94,11 @@ func TestMultiplePortAssignments(t *testing.T) {
 		listener.Close()
 	}
 
-	// Check we got some ports
 	if len(ports) == 0 {
 		t.Error("Could not get any available ports")
 	}
 
-	// Check for basic uniqueness (though not guaranteed due to race conditions)
-	t.Logf("Got ports: %v", ports)
+	t.Logf("Got %d unique ports: %v", len(ports), ports)
 }
 
 func TestUsernameValidation(t *testing.T) {

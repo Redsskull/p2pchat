@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"bufio" // Need this to read user inputs(all chat lines I think)
 	"flag"
 	"fmt"
 	"log"
